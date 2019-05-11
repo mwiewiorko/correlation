@@ -3,7 +3,15 @@ title: "Correlations"
 author: "Mateusz Wiewiórko"
 date: "11 maja 2019"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
+
+
+```{r}
+library("tidyverse")
+library("corrplot")
+```
 
 
 Function to calculta cor between all variable type (num, cat)
@@ -113,15 +121,24 @@ cor2 <- function(df){
 
 Load Data
 ```{r cars}
-summary(cars)
+cred_app <- read_csv("~/2. Rozwojowe kwestie/0_Data/1_home_credit_default_risk/application_train.csv")
+glimpse(cred_app)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+Calculate Cor
+```{r}
+a<-cred_app[,1:10] %>% cor2
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+a %>% corrplot(method="circle", col=col(200),  
+         type="upper",  
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black",tl.cex=.5, tl.srt=45, number.cex = .9,#Text label color and rotation
+         diag=FALSE)
+
+```
+
+
