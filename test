@@ -1,0 +1,369 @@
+---
+output: html_document
+
+---
+
+
+##Needed packages
+```{r}
+library(rpart)
+library(gridExtra)
+library(caret)
+library(tidyverse)
+```
+##Input Data
+```{r}
+d_in<-readRDS('d_in.rds') %>% as.tibble()
+
+```
+
+
+##Considered Variables
+```{r}
+# uwagi trzeba dodać info czy dłuznik był skontaktowany 60 i ever, czy sprawa była skontaktrowana ever
+pred_var_num<- c("age",
+                 "initial_balance",
+                 "m_since_termination",
+                 "m_in_service",
+                 "payments_legal_4m",
+                 "payments_amicable_4m",
+                 "payments_legal_all_before4m",
+                 "payments_amicable_all_before4m",
+                 "payments_legal_4m_debtor",
+                 "payments_amicable_4m_debtor",
+                 "payments_legal_all_before4m_debtor",
+                 "payments_amicable_all_before4m_debtor",
+                 "n_att_60d",
+                 "n_att_180_61d"
+               )
+pred_var_fac <- c("sex",
+                "id_portfolio",
+                "final_gr_zip",
+                "new_address_added_1m",
+                "new_tel_added_1m",
+                "if_agreement_ever",
+                "if_agreement_active_debtor",
+                "if_agreement_ever_debtor",
+                "if_rpc_ever_before60d",
+                "if_rpc_60d",
+                "if_rpc_ever_before60d_debtor",
+                "if_rpc_60d_debtor",
+                "if_att_60d",
+                "m_after_bailiff",
+                "if_bank_portfolio"
+                
+                )
+target_var<-"if_agreement"
+
+```
+
+
+## Variable dependencies (corelations)
+
+```{r,dpi = 200}
+library(corrplot)
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+d_in %>% 
+    na.omit() %>% 
+    select(pred_var_num,pred_var_fac,target_var) %>% 
+    select_if(is.numeric) %>% 
+    cor() %>% 
+    corrplot(method="circle", col=col(200),  
+             type="upper",  
+             addCoef.col = "black",
+             number.cex =0.38,
+             tl.cex=0.5,
+             tl.col="black", tl.srt=45, #Text label color and rotation
+             diag=FALSE)
+
+```
+
+
+##Train and test sets
+```{r}
+dt<-d_in %>% 
+      filter(model_group== "2. Payers") %>% 
+      dplyr::select(d_week_start,pred_var_num,pred_var_fac,target_var) %>% 
+      mutate_at(pred_var_fac, as.factor) %>% 
+       select(-m_in_service,-id_portfolio) 
+
+train <- 
+  dt %>% 
+  filter(d_week_start<'2019-02-01') %>% 
+  select(-d_week_start) %>% mutate(if_agreement=ifelse(if_agreement==1,"Positive","Negative"))
+test <- 
+  dt %>% 
+  filter(d_week_start>='2019-02-01') %>% 
+  select(-d_week_start) %>% mutate(if_agreement=ifelse(if_agreement==1,"Positive","Negative"))
+
+
+test %>% 
+  select( "payments_legal_4m",
+               "payments_amicable_4m",
+               "payments_legal_all_before4m",
+               "payments_amicable_all_before4m",
+               "payments_legal_4m_debtor",
+               "payments_amicable_4m_debtor",
+               "payments_legal_all_before4m_debtor",
+               "payments_amicable_all_before4m_debtor") %>%  
+  gather(key = "var_name",value = "payments") %>% 
+  mutate(payments_cat=cut(payments,c(-Inf,0,10,100,500,1000,1e4,Inf))) %>% 
+  ggplot(aes(payments_cat))+
+  geom_bar()+
+  coord_flip()+
+  facet_wrap("var_name")
+
+
+test %>% 
+  select( "payments_legal_4m",
+               "payments_amicable_4m",
+               "payments_legal_all_before4m",
+               "payments_amicable_all_before4m",
+               "payments_legal_4m_debtor",
+               "payments_amicable_4m_debtor",
+               "payments_legal_all_before4m_debtor",
+               "payments_amicable_all_before4m_debtor") %>%  
+  gather(key = "var_name",value = "payments") %>% 
+  mutate(payments_cat=cut(payments,c(-Inf,0,10,Inf))) %>% 
+  ggplot(aes(var_name,fill=payments_cat))+
+  geom_bar(col="black")+
+  coord_flip()
+
+
+
+```
+
+
+##first model
+```{r}
+#d_in %>% 
+
+
+tune_grid <- expand.grid(nrounds = 200,
+                         max_depth = 5,
+                         eta = 0.05,
+                         gamma = 0.01,
+                         colsample_bytree = 0.75,
+                         min_child_weight = 0,
+                         subsample = 0.5)
+trctrl <- trainControl(method = "none",classProbs=TRUE, summaryFunction = twoClassSummary) # trainControl(method = "cv", number = 5)
+#train_p<-train %>% select(v2model[1:10], TARGET)
+xgb_fit <-  train(as.factor(if_agreement) ~., data = na.omit(train), method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+
+#saveRDS(xgb_fit,"model_xgb_roc.rds")
+
+
+
+```
+
+##Use ROC to assess model 
+```{r}
+# Sprawdzenie krzywa ROC
+library("plotROC")
+
+test<-
+    test %>%
+    na.omit() %>% 
+    mutate(xbg_p= predict(xgb_fit,  na.omit(test), type = "prob")[,2])  %>% 
+    mutate(if_agreement_num=ifelse(if_agreement=="Positive",1,0))
+
+train<-
+    train %>%
+    na.omit() %>% 
+    mutate(xbg_p= predict(xgb_fit,  na.omit(train), type = "prob")[,2]) %>% 
+    mutate(if_agreement_num=ifelse(if_agreement=="Positive",1,0))
+
+
+test  %>%  
+    ggplot() + 
+    geom_roc(aes(m = xbg_p, d = if_agreement_num)) +
+    geom_abline(slope = 1)+
+    geom_roc(data = na.omit(train) ,aes(m = xbg_p, d = if_agreement_num), col="red")
+
+
+
+
+
+library(precrec)
+pred_eval<-evalmod(scores=test$xbg_p,labels=test$if_agreement_num)
+autoplot(pred_eval)
+
+
+
+```
+
+##Analyse Variable Importance
+```{r}
+library("pdp")
+library("vip")
+library("stringdist")
+v_imp<-xgb_fit %>% varImp
+vip(xgb_fit, bar = FALSE, horizontal = T, size = 1.5)
+
+v_imp_name<-v_imp$importance %>% row.names()
+name_pom<-names(test)
+
+ind<-amatch(v_imp_name,name_pom,maxDist=100)
+v_imp_name<- name_pom[ind] %>% unique()
+
+#extract variable names
+
+
+
+n<-12 #num of most important variables to analyse 
+p_pdp<-list()
+
+for(i in 1:n){
+p_pdp[[i]]<-pdp::partial(xgb_fit, pred.var = c(v_imp_name[i]),prob = TRUE,which.class=2,probs = seq(0.01,.97,by=.05),quantiles = TRUE)
+}
+
+
+
+```
+
+##Plot partaial plots
+```{r}
+# fig.asp= 1.50
+library(gridExtra)
+plots_pdp<-lapply(p_pdp, plotPartial)
+
+#do.call(grid.arrange,c(plots_pdp,ncol=2))
+for (i in 1:  length(plots_pdp) ){
+  print(v_imp_name[i])
+  print(plots_pdp[[i]])
+}
+
+
+
+```
+
+
+
+##Build model on most significant variable
+```{r}
+f2m_v12<-as.formula(paste0("as.factor(",target_var,")~",paste(v_imp_name[1:12],collapse = "+")))
+print(f2m_v12)
+xgb_fit_v12 <-  train(f2m_v12, data = na.omit(train), method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+f2m_v2_13<-as.formula(paste0("as.factor(",target_var,")~",paste(v_imp_name[2:13],collapse = "+")))
+print(f2m_v2_13)
+xgb_fit_v2_13 <-  train(f2m_v2_13, data = na.omit(train), method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+
+f2m_v6<-as.formula(paste0("as.factor(",target_var,")~",paste(v_imp_name[1:6],collapse = "+")))
+print(f2m_v6)
+xgb_fit_v6 <-  train(f2m_v6, data = na.omit(train), method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+
+f2m_v2<-as.formula(paste0("as.factor(",target_var,")~",paste(v_imp_name[1:2],collapse = "+")))
+print(f2m_v2)
+xgb_fit_v2 <-  train(f2m_v2, data = na.omit(train), method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+
+test<-
+    test %>%
+    na.omit() %>% 
+    mutate(xbg_p_v12= predict(xgb_fit_v12,  na.omit(test), type = "prob")[,2],
+           xbg_p_v6= predict(xgb_fit_v6,  na.omit(test), type = "prob")[,2],
+           xbg_p_v2= predict(xgb_fit_v2,  na.omit(test), type = "prob")[,2],
+           xgb_fit_v2_13= predict(xgb_fit_v2,  na.omit(test), type = "prob")[,2])
+
+
+test  %>%  
+    ggplot() + 
+    geom_roc(aes(m = xbg_p, d = if_agreement_num)) +
+    geom_abline(slope = 1)+
+    geom_roc(aes(m = xbg_p_v12, d = if_agreement_num), col="red")+
+    geom_roc(aes(m = xgb_fit_v2_13, d = if_agreement_num), col="brown")+
+    geom_roc(aes(m = xbg_p_v6, d = if_agreement_num), col="green")+
+    geom_roc(aes(m = xbg_p_v2, d = if_agreement_num), col="blue")
+
+```
+
+##Catogarization for logistic regresion - on fly
+```{r}
+
+train %>% mutate( n_att_before60d_cat=cut(n_att_180_61d,c(-.1,0,3,5,10,15,50,10000))
+) %>% group_by(n_att_before60d_cat) %>% summarise(n=n(),agrement_no=sum(if_agreement_num),agr_frac=sum(if_agreement_num)/n())
+
+train %>% mutate( m_since_termination_cat=cut(m_since_termination,c(-.1,30,36,48,60,10000))
+) %>% group_by(m_since_termination_cat) %>% summarise(n=n(),agrement_no=sum(if_agreement_num),agr_frac=sum(if_agreement_num)/n())
+
+train %>% mutate( initial_balance_cat=cut(initial_balance,c(-.1,100,500,1000,3000,5000,10000,20000,50000,1e8))
+) %>% group_by(initial_balance_cat) %>% summarise(n=n(),agrement_no=sum(if_agreement_num),agr_frac=sum(if_agreement_num)/n())
+train %>% mutate( n_att_60d_cat=cut(n_att_60d,c(-.1,0,5,10,15,100))
+) %>% group_by(n_att_60d_cat) %>% summarise(n=n(),agrement_no=sum(if_agreement_num),agr_frac=sum(if_agreement_num)/n())
+
+train %>% mutate( age_cat=cut(age,c(-.1,30,40,50,60,70,1000))
+) %>% group_by(age_cat) %>% summarise(n=n(),agrement_no=sum(if_agreement_num),agr_frac=sum(if_agreement_num)/n())
+
+#update data
+
+train<-
+  train %>% 
+  mutate( n_att_180_61d_cat=cut(n_att_180_61d,c(-.1,0,3,5,10,15,50,10000)), 
+          m_since_termination_cat=cut(m_since_termination,c(-.1,30,36,48,60,10000)),
+          initial_balance_cat=cut(initial_balance,c(-.1,100,500,1000,3000,5000,10000,20000,50000,1e8)),
+          n_att_60d_cat=cut(n_att_60d,c(-.1,0,5,10,15,100)),
+          age_cat=cut(age,c(-.1,30,40,50,60,70,1000)))
+test<-
+  test %>% 
+  mutate( n_att_180_61d_cat=cut(n_att_180_61d,c(-.1,0,3,5,10,15,50,10000)), 
+          m_since_termination_cat=cut(m_since_termination,c(-.1,30,36,48,60,10000)),
+          initial_balance_cat=cut(initial_balance,c(-.1,100,500,1000,3000,5000,10000,20000,50000,1e8)),
+          n_att_60d_cat=cut(n_att_60d,c(-.1,0,5,10,15,100)),
+          age_cat=cut(age,c(-.1,30,40,50,60,70,1000)))
+
+
+```
+
+
+## Logistic regression (with stepAIC)
+```{r}
+f2m_v12_glm<-
+as.formula("as.factor(if_agreement) ~ n_att_180_61d_cat + initial_balance_cat + 
+    m_since_termination_cat + n_att_60d_cat + if_rpc_60d + if_rpc_ever_before60d + 
+    age_cat + if_agreement_ever + m_after_bailiff + sex + new_tel_added_1m + 
+    final_gr_zip")
+
+
+
+glm_fit_v12 <- glm(f2m_v12_glm,family=binomial(link='logit'),data=train)
+glm_fit_v12 <- stats::step(glm_fit_v12,direction="both")
+
+summary(glm_fit_v12)
+
+```
+
+
+## Compare all models
+```{r}
+test<-
+    test %>%
+    na.omit() %>% 
+    mutate(glm_p_v12= predict(glm_fit_v12,  na.omit(test), type = "response"))
+
+
+test  %>%  
+    ggplot() + 
+    geom_roc(aes(m = xbg_p, d = if_agreement_num)) +
+    geom_abline(slope = 1)+
+    geom_roc(aes(m = xbg_p_v12, d = if_agreement_num), col="red")+
+    geom_roc(aes(m = xbg_p_v6, d = if_agreement_num), col="green")+
+    geom_roc(aes(m = xbg_p_v2, d = if_agreement_num), col="blue")+
+    geom_roc(aes(m = glm_p_v12, d = if_agreement_num), col="pink")
+
+```
+
