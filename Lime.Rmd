@@ -1,0 +1,44 @@
+---
+title: "Lime"
+author: "Mateusz Wiewiórko"
+date: "12 maja 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Packages
+```{r}
+library(tidyverse)
+library(lime)
+```
+
+
+```{r}
+
+
+explainer <- lime(dt2model, xgb_fit1_1, bin_continuous = TRUE, quantile_bins = FALSE)
+
+
+local_obs <- dt2model %>% sample_n(size = 4)
+
+explanation_caret <- lime::explain(
+  local_obs, 
+  explainer_caret,
+  n_features = 4,
+  n_label=1
+  )
+
+
+
+plot_features(explanation_caret)
+plot_explanations(explanation_caret)
+
+```
+
+
+
+
+
+

@@ -1,0 +1,35 @@
+---
+title: "Untitled"
+author: "Mateusz Wiewiórko"
+date: "12 maja 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Needed Paskages
+```{r}
+library(skimr)
+library(tidyverse)
+```
+
+
+Load Data
+```{r}
+cred_app <- 
+  read_csv("~/2. Rozwojowe kwestie/0_Data/1_home_credit_default_risk/application_train.csv")
+```
+
+Fast sum up
+```{r}
+var_desc1<-cred_app %>% skim()
+var_desc2<-cred_app %>% summary()
+```
+
+Remove Variables with high level of missing
+```{r}
+var_desc1 %>% dplyr::filter(stat == "missing") %>%filter(value<10000) %>%    select(variable) %>% pull
+
+```
+

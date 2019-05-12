@@ -1,0 +1,123 @@
+---
+title: "Untitled"
+author: "Mateusz Wiewiórko"
+date: "12 maja 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Needed Paskages
+```{r}
+library(caret)
+library(tidyverse)
+```
+
+
+Load Data
+```{r cars}
+cred_app <- 
+  read_csv("~/2. Rozwojowe kwestie/0_Data/1_home_credit_default_risk/application_train.csv") %>% 
+  mutate_if(is.character,as.factor) %>% 
+  mutate_if(is.factor,fct_explicit_na)
+glimpse(cred_app)
+```
+
+
+# Fast NA Handle
+```{r}
+var_to_use <-
+  cred_app %>% 
+  skim() %>% 
+  dplyr::filter(stat == "missing") %>%
+  filter(value<10000) %>%    
+  select(variable) %>% 
+  pull
+
+
+cred_app %>% select(var_to_use) %>% na.omit() %>% nrow()
+```
+
+Cutted data
+```{r}
+dt2model<-
+  cred_app %>% 
+  select(var_to_use) %>% 
+  na.omit() %>% 
+  mutate(TARGET=as.factor(ifelse(TARGET==1,"Positive","Negative"))) %>% 
+  select(-FLAG_MOBIL)  #constant
+
+
+```
+
+
+##first model
+```{r}
+tune_grid <- expand.grid(nrounds = 200,
+                         max_depth = 5,
+                         eta = 0.05,
+                         gamma = 0.01,
+                         colsample_bytree = 0.75,
+                         min_child_weight = 0,
+                         subsample = 0.5)
+trctrl <- trainControl(method = "none",classProbs=TRUE, summaryFunction = twoClassSummary) # trainControl(method = "cv", number = 5)
+#train_p<-train %>% select(v2model[1:10], TARGET)
+xgb_fit1 <-  train(TARGET ~., data = dt2model, method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+
+# don't do dummy variable fom factor  -> nie przelicza sie dlaczego?
+xgb_fit2 <-  train(y=dt2model %>% select(TARGET) %>% pull, 
+                   x=dt2model %>% select(-TARGET), 
+                   method = "xgbTree",
+                   trControl=trctrl,
+                   tuneGrid = tune_grid)
+
+#saveRDS(xgb_fit,"model_xgb_roc.rds")
+
+
+
+```
+
+Importance
+```{r}
+library("pdp")
+library("vip")
+library("stringdist")
+v_imp<-xgb_fit1 %>% varImp
+vip(xgb_fit1, bar = FALSE, horizontal = T, size = 1.5)
+
+v_imp_name<-v_imp$importance %>% row.names()
+name_pom<-names(dt2model)
+
+ind<-amatch(v_imp_name,name_pom,maxDist=100)
+v_imp_name<- name_pom[ind] %>% unique()
+
+```
+
+Calc model wit 20 variables
+```{r}
+tune_grid <- expand.grid(nrounds = 200,
+                         max_depth = 5,
+                         eta = 0.05,
+                         gamma = 0.01,
+                         colsample_bytree = 0.75,
+                         min_child_weight = 0,
+                         subsample = 0.5)
+trctrl <- trainControl(method = "none",classProbs=TRUE, summaryFunction = twoClassSummary) # trainControl(method = "cv", number = 5)
+#train_p<-train %>% select(v2model[1:10], TARGET)
+xgb_fit1_1 <-  train(TARGET ~., 
+                data = dt2model %>% select(TARGET,v_imp_name[1:20]), 
+                method = "xgbTree",
+                trControl=trctrl,
+                tuneGrid = tune_grid)
+```
+
+Save model
+```{r}
+saveRDS(xgb_fit1_1,'xgb_model.rds')
+```
+
+
+
+
