@@ -33,3 +33,64 @@ var_desc1 %>% dplyr::filter(stat == "missing") %>%filter(value<10000) %>%    sel
 
 ```
 
+
+
+##Needed packages
+```{r}
+library("visdat")
+library("naniar")
+library("tidyverse")
+
+```
+
+
+##Input Data (cache=T -> ten chunk bedzie zapisany i przy kolejnej generacji Markdown nie bedzie trzeba go liczyc, jest liczone tylko przy pierwszej generacji RMD, jak trzeba przeliczyć to jeszcze raz to niestety trzeba ustawic cache=F)
+```{r,cache=T}
+d_in<-readRDS('d_in.rds') %>% as.tibble() 
+```
+
+
+Wiziualizacja brakow -> wolno dzial dla duzych danych
+```{r}
+d_in %>% sample_frac(0.01) %>% vis_dat(warn_large_data=F)
+d_in %>% sample_frac(0.01) %>% vis_miss(warn_large_data=F)
+d_in %>% miss_var_summary()
+d_in %>% select(final_gr_zip,d_go2exbailiff_max) %>% group_by(final_gr_zip) %>% miss_var_summary()
+d_in %>% gg_miss_var()
+d_in %>% gg_miss_upset()
+d_in %>% gg_miss_upset(nset=6)
+
+#podsumowanie brakow nna poziomie jakiejs zmiennej
+d_in %>% gg_miss_var(final_gr_zip,show_pct = T)
+d_in %>% gg_miss_fct(final_gr_zip)
+
+d_in %>% 
+  sample_frac(0.01) %>% 
+  ggplot(aes(age,m_since_termination))+
+  geom_miss_point()
+
+
+d_in %>% 
+  sample_frac(0.01) %>% 
+  ggplot(aes(age,m_since_termination))+
+  geom_miss_point() +
+  facet_wrap("sex") +
+  theme_dark()
+
+
+```
+
+
+#dodanie infa o braku danych
+```{r}
+d_in %>% sample_frac(0.01) %>% as_shadow()
+d_in %>% sample_frac(0.01) %>% bind_shadow() %>% glimpse 
+
+d_in %>% 
+  sample_frac(0.1) %>% 
+  bind_shadow() %>% 
+  ggplot(aes(age,fill=zip_group_NA))+ geom_density(alpha=0.5)
+```
+
+
+
