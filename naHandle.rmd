@@ -1,0 +1,176 @@
+---
+title: "Untitled"
+author: "MW"
+date: "14 maja 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+##Needed packages
+```{r}
+library("visdat")
+library("naniar")
+library("simputation")
+library("tidyverse")
+library("mice")
+
+```
+
+
+##Input Data (cache=T -> ten chunk bedzie zapisany i przy kolejnej generacji Markdown nie bedzie trzeba go liczyc, jest liczone tylko przy pierwszej generacji RMD, jak trzeba przeliczyć to jeszcze raz to niestety trzeba ustawic cache=F)
+```{r,cache=T}
+d_in<-readRDS('d_in.rds') %>% as.tibble() 
+```
+
+
+Wiziualizacja brakow -> wolno dzial dla duzych danych
+```{r}
+d_in %>% sample_frac(0.01) %>% vis_dat(warn_large_data=F)
+d_in %>% sample_frac(0.01) %>% vis_miss(warn_large_data=F)
+d_in %>% miss_var_summary()
+d_in %>% select(final_gr_zip,d_go2exbailiff_max) %>% group_by(final_gr_zip) %>% miss_var_summary()
+d_in %>% gg_miss_var()
+d_in %>% gg_miss_upset()
+d_in %>% gg_miss_upset(nset=6)
+
+#podsumowanie brakow nna poziomie jakiejs zmiennej
+d_in %>% gg_miss_var(final_gr_zip,show_pct = T)
+d_in %>% gg_miss_fct(final_gr_zip)
+
+d_in %>% 
+  sample_frac(0.01) %>% 
+  ggplot(aes(age,m_since_termination))+
+  geom_miss_point()
+
+
+d_in %>% 
+  sample_frac(0.01) %>% 
+  ggplot(aes(age,m_since_termination))+
+  geom_miss_point() +
+  facet_wrap("sex") +
+  theme_dark()
+
+
+```
+
+
+#dodanie infa o braku danych
+```{r}
+d_in %>% sample_frac(0.01) %>% as_shadow()
+d_in %>% sample_frac(0.01) %>% bind_shadow() %>% glimpse 
+
+d_in %>% 
+  sample_frac(0.1) %>% 
+  bind_shadow() %>% 
+  ggplot(aes(age,fill=zip_group_NA))+ geom_density(alpha=0.5)
+```
+
+
+# wpisanie brakow jezeli mamy zle kodowanie
+```{r}
+#d_in %>% mutate(year=lubridate::year(d_termination)) %>% count(year)
+
+
+
+d_in %>% 
+  sample_frac(0.1) %>% 
+  mutate(year=lubridate::year(d_termination)) %>% 
+  replace_with_na(list(year=1900)) %>% 
+  count(year)
+
+
+d_in %>% 
+  sample_frac(0.001) %>% 
+  mutate(year=lubridate::year(d_termination)) %>% 
+  replace_with_na_at(c("year"),~.x<2000) %>% 
+  count(year)
+  
+# Uzupełnienie mediana
+d_in %>% 
+  head(100000) %>% 
+  impute_median_all() %>% 
+  miss_var_summary() %>% 
+  print(n=60)
+
+d_in %>% 
+  head(100000) %>% 
+  miss_var_summary() %>% 
+  print(n=60)
+
+d_in %>% 
+  head(100000) %>% 
+  impute_median_at(vars(age) ) %>% #impute_median_at("age") 
+  miss_var_summary() %>% 
+  print(n=60)
+#
+d_in %>% 
+  head(100000) %>% 
+  impute_lm(age~as.factor(id_portfolio)+initial_balance) %>% #impute_median_at("age") 
+  miss_var_summary() %>% 
+  print(n=60)
+
+# zwizualizowanie wypelnienia
+d_in %>% 
+  head(100000) %>% 
+  bind_shadow(only_miss = T) %>% 
+  impute_lm(age~as.factor(id_portfolio)+initial_balance) %>% #impute_median_at("age") 
+  ggplot(aes(id_portfolio,age,col=age_NA))+
+  geom_point()
+#uzycie regresji odpornej
+d_in %>% 
+  head(100000) %>% 
+  bind_shadow(only_miss = T) %>% 
+  impute_rlm(age~as.factor(id_portfolio)+initial_balance,  method = "M") %>% #impute_median_at("age") 
+  ggplot(aes(id_portfolio,age,col=age_NA))+
+  geom_point()
+
+
+#
+# d_in %>% 
+#   head(100000) %>% 
+#   impute_rf(age~id_portfolio+initial_balance) %>% #impute_median_at("age") 
+#   miss_var_summary() %>% 
+#   print(n=60)
+
+
+# Wypelnianie danych jakims modelem ale jednoczesnie dostajemy ten model
+
+model_zmiany_danych<-
+  d_in %>% 
+  select_if(is.numeric) %>% 
+  head(100000) %>% 
+  bind_shadow(only_miss = T) %>% 
+  mice(method = "cart",m=1)
+
+d_pom<-
+  d_in %>% 
+  select_if(is.numeric) %>% 
+  head(100000)
+
+d_pom_imput<-complete(model_zmiany_danych)
+
+
+bind_rows(d1=d_pom,d2=d_pom_imput,.id = "imput") %>% 
+  ggplot(aes(age,fill = imput)) +geom_density(alpha=0.5)
+
+```
+
+#modelowanie brakow
+```{r}
+library("rpart")
+library("rpart.plot")
+d_pom %>% 
+  add_prop_miss() %>% 
+  rpart(prop_miss_all~.,data = .,control = rpart.control(maxdepth = 3)) %>% 
+  rpart.plot(type=5, extra = 101,prefix="Prop.Miss=") 
+
+```
+
+
+
+
+
+
+
