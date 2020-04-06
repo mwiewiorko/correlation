@@ -1,0 +1,30 @@
+
+library("tidyverse")
+library(XML)
+
+
+
+
+library("rvest")
+url <- "https://www.worldometers.info/coronavirus/"
+cv_stats <- url %>%
+  html() %>%
+  html_nodes('#main_table_countries_yesterday') %>%
+  html_table()
+cv_stats<-cv_stats[[1]] %>% as_tibble()
+
+
+
+cv_stats %>% view()
+
+cv_stats<-
+  cv_stats %>% 
+  mutate(
+    TotalCases=str_remove_all(TotalCases,",") %>% as.integer(),
+    `Tests/1M pop`=str_remove_all(`Tests/1M pop`,",") %>% as.integer()
+  )
+
+cv_stats %>% 
+  filter(TotalCases>1000) %>% 
+  ggplot()+
+  geom_point(aes(log(`Tests/1M pop`),log(TotalCases)))
