@@ -1,30 +1,104 @@
 
 library("tidyverse")
-library(XML)
-
-
-
-
+library("XML")
 library("rvest")
-url <- "https://www.worldometers.info/coronavirus/"
-cv_stats <- url %>%
-  html() %>%
-  html_nodes('#main_table_countries_yesterday') %>%
+library("ggrepel")
+
+#GET DATA
+# url1 <- "https://www.worldometers.info/coronavirus/"
+# cv_stats <- url1 %>%
+#   read_html() %>%
+#   html_nodes('#main_table_countries_yesterday') %>%
+#   html_table()
+# cv_stats<-cv_stats[[1]] %>% as_tibble()
+
+#Get Data about cov 
+url1 <- "https://www.worldometers.info/coronavirus/"
+cv_stats <- url1 %>%
+  read_html() %>%
+  html_nodes('table') %>%
   html_table()
-cv_stats<-cv_stats[[1]] %>% as_tibble()
+cv_stats<-cv_stats[[2]] %>% as_tibble()
 
 
+#Get Data about world population 
+url2 <- "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population"
+countries_population <- url2 %>%
+  read_html() %>%
+  html_nodes('table') %>% 
+  html_table()
+countries_population<-countries_population[[1]]
 
-cv_stats %>% view()
+
+# Some basic transformation
+countries_population<-
+  countries_population %>% 
+  rename(country=`Country (or dependent territory)`) %>% 
+  mutate(country=str_remove(country,'\\[.\\]'),
+         country=str_replace_all(
+                   country,
+                   c('United Kingdom'='UK','Czech Republic'='Czechia','United States'='USA','South Korea'='S. Korea')
+                  ),
+         Population=str_remove_all(Population,",") %>% as.integer()
+         ) %>%
+  select(country,Population) %>% 
+  as_tibble()
+
 
 cv_stats<-
   cv_stats %>% 
   mutate(
     TotalCases=str_remove_all(TotalCases,",") %>% as.integer(),
     `Tests/1M pop`=str_remove_all(`Tests/1M pop`,",") %>% as.integer()
-  )
+  ) %>% 
+  rename(
+    country=`Country,Other`,
+    tested_per_1mln=`Tests/1M pop`
+  ) %>% 
+  select(country,tested_per_1mln,TotalCases)
 
-cv_stats %>% 
+dt2plot<-
+  inner_join(countries_population,cv_stats,by=c("country")) %>% 
+  mutate(infected_frac=TotalCases/Population)
+
+ countries_population %>% filter(str_detect(country,'K'))
+ cv_stats %>% filter(str_detect(country,'K'))
+
+dt2plot %>% 
   filter(TotalCases>1000) %>% 
-  ggplot()+
-  geom_point(aes(log(`Tests/1M pop`),log(TotalCases)))
+  ggplot(aes((tested_per_1mln),(infected_frac),label=country))+
+  geom_point()+
+  geom_text_repel()+#geom_text()+
+  scale_y_continuous(trans = "log2")+
+  scale_x_continuous(trans = "log2")
+
+
+inf_rate_can<-dt2plot %>% filter(country %in% c("Czechia")) %>% select(infected_frac) %>% pull()
+pl_population<-dt2plot %>% filter(country %in% c("Poland")) %>% select(Population) %>% pull
+
+pl_population*inf_rate_can
+
+
+
+
+
+
+
+url2 <- "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population"
+countries_population <- url2 %>%
+  read_html() %>%
+  html_nodes('table') %>% 
+  html_table()
+countries_population<-countries_population[[1]]
+
+
+pom<-str_replace_all(
+  countries_population$country,
+  c('United Kingdom'='UK','Czech Republic'='Czechia','United States'='USA','South Korea'='S. Korea')
+)
+pom[pom=='S. Korea']
+pom[pom=='USA']
+pom[pom=='South Korea']
+
+
+#write_rds(cv_stats,"cv_stats_2020_04_08.rds")
