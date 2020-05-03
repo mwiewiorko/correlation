@@ -1,0 +1,27 @@
+suppressPackageStartupMessages({
+  library(tidycovid19)
+  library(dplyr)
+  library(ggplot2)  
+  library(ggrepel)
+})
+
+ggplot(iris, aes(Sepal.Length, fill = Species)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10()
+
+ggplot(iris, aes(Sepal.Length, fill = Species)) +
+  geom_density(position = "fill") +
+  scale_x_log10()
+
+
+library("ggridges") # geom_density_ridges_gradient
+library("viridis")
+ggplot(iris, aes(Sepal.Length, Species, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.01) +
+  scale_x_log10() +
+  scale_fill_viridis(name = "Sepal.Length") 
+
+ggplot(iris, aes(Sepal.Length, Species)) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.01) +
+  scale_x_log10() 
+
